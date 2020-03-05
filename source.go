@@ -15,6 +15,7 @@ type Datasource struct {
 	UpdateFilter    UpdateFilterHook
 	EmptyCollection bool
 	Sanitize        bool
+	Type            loaders.InputType
 }
 
 // PostLoadHook ...

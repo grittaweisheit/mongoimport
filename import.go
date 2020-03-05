@@ -1,17 +1,14 @@
 package mongoimport
 
 import (
-	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"sync"
 	"time"
 
 	// "context"
 
 	"github.com/gosuri/uiprogress"
-	"github.com/gosuri/uiprogress/util/strutil"
 	"github.com/romnnn/mongoimport/loaders"
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -29,7 +26,7 @@ type Import struct {
 
 // ImportResult ...
 type ImportResult struct {
-	File       string
+	Files      []string
 	Collection string
 	Succeeded  int
 	Failed     int
@@ -37,63 +34,11 @@ type ImportResult struct {
 	errors     []error
 }
 
-func byteCountSI(b int64) string {
-	const unit = 1000
-	if b < unit {
-		return fmt.Sprintf("%d B", b)
-	}
-	div, exp := int64(unit), 0
-	for n := b / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB",
-		float64(b)/float64(div), "kMGTPE"[exp])
-}
-
-func (i Import) safePad() uint {
-	var maxTotal, maxFilename, maxCollection string
-	maxTotal = "589 GB" // Hardcoding seems sufficient
-	for _, s := range i.Data {
-		if len(s.Collection) > len(maxCollection) {
-			maxCollection = s.Collection
-		}
-		for _, f := range s.Files {
-			if filename := filepath.Base(f); len(filename) > len(maxFilename) {
-				maxFilename = filename
-			}
-		}
-	}
-	return uint(len(i.formattedProgressStatus(maxFilename, maxCollection, maxTotal, maxTotal)) + 5)
-}
-
-func (i Import) formattedProgressStatus(filename string, collection string, bytesDone string, bytesTotal string) string {
-	return fmt.Sprintf("[%s -> %s] %s/%s", filename, collection, bytesDone, bytesTotal)
-}
-
-func (i Import) formattedResult(result ImportResult) string {
-	filename := filepath.Base(result.File)
-	return fmt.Sprintf("[%s -> %s]: %d rows were imported successfully and %d failed in %s", filename, result.Collection, result.Succeeded, result.Failed, result.Elapsed)
-}
-
-func (i Import) progressStatus(file string, collection string, length uint) func(b *uiprogress.Bar) string {
-	return func(b *uiprogress.Bar) string {
-		filename := filepath.Base(file)
-		bytesDone := byteCountSI(int64(b.Current()))
-		bytesTotal := byteCountSI(int64(b.Total))
-		status := i.formattedProgressStatus(filename, collection, bytesDone, bytesTotal)
-		return strutil.Resize(status, length)
-	}
-}
-
-func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan chan []ImportResult, db *mongo.Database) {
-	defer wg.Done()
-	var sourceWg sync.WaitGroup
-
-	ldrs := make([]*loaders.Loader, len(source.Files))
-	results := make([]ImportResult, len(source.Files))
-	resultsChan := make(chan ImportResult, len(source.Files))
-	updateChan := make(chan bool)
+// source *Datasource
+// i Import
+// bar *uiprogress.Bar
+func (source *Datasource) importFiles(files []string, sourceWg *sync.WaitGroup, resultsChan chan ImportResult, bar *uiprogress.Bar, loader *loaders.Loader, collection *mongo.Collection, batchSize int, ignoreErrors bool) {
+	defer sourceWg.Done()
 
 	// Check for hooks
 	var postLoadHook PostLoadHook
@@ -115,109 +60,128 @@ func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan 
 	updateFilter = source.UpdateFilter
 	log.Debugf("Update filter is %v", updateFilter)
 
-	for li, f := range source.Files {
-		// Create a new loader for each file here
-		l, err := source.Loader.Create(f)
+	start := time.Now()
+	result := ImportResult{
+		Files:      files,
+		Collection: source.Collection,
+		Succeeded:  0,
+		Failed:     0,
+	}
+
+	loader.Start(bar)
+
+	batch := make([]interface{}, batchSize)
+	batched := 0
+	for {
+		exit := false
+		entry, err := loader.Load()
 		if err != nil {
-			log.Errorf("Skipping file %s because no loader could be created: %s", f, err.Error())
+			switch err {
+			case io.EOF:
+				exit = true
+			default:
+				result.Failed++
+				result.errors = append(result.errors, err)
+				if ignoreErrors {
+					log.Warnf(err.Error())
+					continue
+				} else {
+					log.Errorf(err.Error())
+					exit = true
+				}
+			}
+		}
+
+		if exit {
+			// Insert remaining
+			insert(collection, batch[:batched])
+			break
+		}
+
+		// Apply post load hook
+		loaded, err := postLoadHook(entry)
+		if err != nil {
+			log.Error(err)
+			result.Failed++
 			continue
 		}
-		ldrs[li] = l
 
+		// Apply pre dump hook
+		dumped, err := preDumpHook(loaded)
+		if err != nil {
+			log.Error(err)
+			result.Failed++
+			continue
+		}
+
+		// Convert to BSON and add to batch
+		batch[batched] = dumped
+		batched++
+
+		// Flush batch eventually
+		if batched == batchSize {
+			/*
+				if updateFilter != nil {
+					database.Collection(collection).UpdateMany(
+						context.Background(),
+						updateFilter(dumped), update, options.Update().SetUpsert(true),
+					)
+				}
+			*/
+			// database.Collection(collection).InsertMany(context.Background(), batch)
+			// filter := bson.D{{}}
+			// update := batch // []interface{}
+			// options := options.UpdateOptions{}
+			// options.se
+			// log.Infof("insert into %s:%s", databaseName, collection)
+			err := insert(collection, batch[:batched])
+			if err != nil {
+				log.Warn(err)
+			}
+			result.Succeeded += batched
+			batched = 0
+		}
+	}
+	loader.Finish()
+	result.Elapsed = time.Since(start)
+	resultsChan <- result
+}
+
+func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan chan []ImportResult, db *mongo.Database) {
+	defer wg.Done()
+	var sourceWg sync.WaitGroup
+
+	ldrs := make([]*loaders.Loader, len(source.Files))
+	results := make([]ImportResult, len(source.Files))
+	resultsChan := make(chan ImportResult, len(source.Files))
+	updateChan := make(chan bool)
+
+	batchSize := 100
+	collection := db.Collection(source.Collection)
+
+	bar := uiprogress.AddBar(10).AppendCompleted()
+	if source.Type == loaders.MultipleInput {
+		l, err := source.Loader.Create(source.Files)
+		if err != nil {
+			log.Fatalf("Failed to create loader for %d files: %s", len(source.Files), err.Error())
+			return
+		}
+		bar.PrependFunc(i.progressStatus(source.Files, source.Collection, i.safePad()))
 		sourceWg.Add(1)
-		go func(file string, loader *loaders.Loader, collection *mongo.Collection, batchSize int) {
-			defer sourceWg.Done()
-
-			start := time.Now()
-			result := ImportResult{
-				File:       file,
-				Collection: source.Collection,
-				Succeeded:  0,
-				Failed:     0,
+		go source.importFiles(source.Files, &sourceWg, resultsChan, bar, l, collection, batchSize, i.IgnoreErrors)
+	} else {
+		for li, f := range source.Files {
+			// Create a new loader for each file here
+			l, err := source.Loader.Create([]string{f})
+			if err != nil {
+				log.Errorf("Skipping file %s because no loader could be created: %s", f, err.Error())
+				continue
 			}
-
-			loader.Start()
-
-			// Create progress bar
-			loader.Bar = uiprogress.AddBar(10).AppendCompleted()
-			loader.Bar.PrependFunc(i.progressStatus(file, source.Collection, i.safePad()))
-
-			batch := make([]interface{}, batchSize)
-			batched := 0
-			for {
-				exit := false
-				entry, err := loader.Load()
-				if err != nil {
-					switch err {
-					case io.EOF:
-						exit = true
-					default:
-						result.Failed++
-						result.errors = append(result.errors, err)
-						if i.IgnoreErrors {
-							log.Warnf(err.Error())
-							continue
-						} else {
-							log.Errorf(err.Error())
-							break
-						}
-					}
-				}
-
-				if exit {
-					// Insert remaining
-					insert(collection, batch[:batched])
-					break
-				}
-
-				// Apply post load hook
-				loaded, err := postLoadHook(entry)
-				if err != nil {
-					log.Error(err)
-					result.Failed++
-					continue
-				}
-
-				// Apply pre dump hook
-				dumped, err := preDumpHook(loaded)
-				if err != nil {
-					log.Error(err)
-					result.Failed++
-					continue
-				}
-
-				// Convert to BSON and add to batch
-				batch[batched] = dumped
-				batched++
-
-				// Flush batch eventually
-				if batched == batchSize {
-					/*
-						if updateFilter != nil {
-							database.Collection(collection).UpdateMany(
-								context.Background(),
-								updateFilter(dumped), update, options.Update().SetUpsert(true),
-							)
-						}
-					*/
-					// database.Collection(collection).InsertMany(context.Background(), batch)
-					// filter := bson.D{{}}
-					// update := batch // []interface{}
-					// options := options.UpdateOptions{}
-					// options.se
-					// log.Infof("insert into %s:%s", databaseName, collection)
-					err := insert(collection, batch[:batched])
-					if err != nil {
-						log.Warn(err)
-					}
-					result.Succeeded += batched
-					batched = 0
-				}
-			}
-			loader.Finish()
-			result.Elapsed = time.Since(start)
-			resultsChan <- result
-		}(f, ldrs[li], db.Collection(source.Collection), 100)
+			ldrs[li] = l
+			bar.PrependFunc(i.progressStatus([]string{f}, source.Collection, i.safePad()))
+			sourceWg.Add(1)
+			go source.importFiles([]string{f}, &sourceWg, resultsChan, bar, ldrs[li], collection, batchSize, i.IgnoreErrors)
+		}
 	}
 
 	go func() {
@@ -239,31 +203,15 @@ func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan 
 
 	sourceWg.Wait()
 	close(updateChan)
+	for _, l := range ldrs {
+		// End prgress
+		l.SetProgressPercent(1)
+	}
 	// Collect results
 	for ri := range results {
 		results[ri] = <-resultsChan
 	}
 	resultChan <- results
-}
-
-func contains(s []string, e string) bool {
-	for _, a := range s {
-		if a == e {
-			return true
-		}
-	}
-	return false
-}
-
-func (i Import) databaseName(source *Datasource) (string, error) {
-	databaseName := i.Connection.DatabaseName
-	if source.DatabaseName != "" {
-		databaseName = source.DatabaseName
-	}
-	if databaseName != "" {
-		return databaseName, nil
-	}
-	return databaseName, errors.New("Missing database name")
 }
 
 // Start ...

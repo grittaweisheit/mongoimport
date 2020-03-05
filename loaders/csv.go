@@ -8,8 +8,8 @@ import (
 	"unicode/utf8"
 
 	csv "github.com/JensRantil/go-csv"
-	"github.com/prometheus/common/log"
 	"github.com/romnnn/mongoimport/validation"
+	log "github.com/sirupsen/logrus"
 )
 
 func containsDelimiter(col string) bool {
@@ -95,6 +95,11 @@ func DefaultCSVLoader() *CSVLoader {
 	}
 }
 
+// Type ...
+func (csvl *CSVLoader) Type() InputType {
+	return SingleInput
+}
+
 // Start ...
 func (csvl *CSVLoader) Start() error {
 	dialect := csv.Dialect{}
@@ -128,7 +133,10 @@ func (csvl *CSVLoader) Finish() error {
 }
 
 // Create ...
-func (csvl CSVLoader) Create(reader io.Reader, skipSanitization bool) ImportLoader {
+func (csvl CSVLoader) Create(readers []io.Reader, skipSanitization bool) (ImportLoader, error) {
+	if len(readers) != 1 {
+		return nil, fmt.Errorf("CSV loader can only process one CSV at a time")
+	}
 	return &CSVLoader{
 		SkipHeader:       csvl.SkipHeader,
 		SkipParseHeader:  csvl.SkipParseHeader,
@@ -137,8 +145,8 @@ func (csvl CSVLoader) Create(reader io.Reader, skipSanitization bool) ImportLoad
 		Excel:            csvl.Excel,
 		NullDelimiter:    csvl.NullDelimiter,
 		SkipSanitization: skipSanitization,
-		reader:           reader,
-	}
+		reader:           readers[0],
+	}, nil
 }
 
 // Load ...

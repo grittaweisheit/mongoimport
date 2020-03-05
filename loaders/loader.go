@@ -9,7 +9,14 @@ import (
 
 	"github.com/gosuri/uiprogress"
 	"github.com/mitchellh/mapstructure"
-	"github.com/prometheus/common/log"
+	// "github.com/romnnn/mongoimport"
+)
+
+type InputType int32
+
+const (
+	SingleInput InputType = iota
+	MultipleInput
 )
 
 // ImportLoader ...
@@ -18,12 +25,12 @@ type ImportLoader interface {
 	Start() error
 	Finish() error
 	Describe() string
-	Create(reader io.Reader, sanitize bool) ImportLoader
+	Create(readers []io.Reader, sanitize bool) (ImportLoader, error)
 }
 
 // Loader ...
 type Loader struct {
-	File             string
+	Files            []string
 	SpecificLoader   ImportLoader
 	file             *os.File
 	read             int64
@@ -44,6 +51,13 @@ func (l *Loader) GetProgress() (int64, int64) {
 	return l.read, l.total
 }
 
+// SetProgressPercent ..
+func (l *Loader) SetProgressPercent(percent float32) {
+	if l.Bar != nil {
+		l.Bar.Set(int(percent * float32(l.Bar.Total)))
+	}
+}
+
 // UpdateProgress ...
 func (l *Loader) UpdateProgress() {
 	done, total := l.GetProgress()
@@ -57,10 +71,8 @@ func (l *Loader) UpdateProgress() {
 // Load ...
 func (l *Loader) Load() (map[string]interface{}, error) {
 	if !l.ready {
-		log.Debug("Not ready")
 		return nil, fmt.Errorf("Attempt to call Load() without calling Start()")
 	}
-	log.Debug("Load")
 	return l.SpecificLoader.Load()
 }
 
@@ -75,35 +87,50 @@ func (l *Loader) Write(p []byte) (n int, err error) {
 }
 
 // Start ...
-func (l *Loader) Start() error {
+func (l *Loader) Start(bar *uiprogress.Bar) error {
 	err := l.SpecificLoader.Start()
 	if err != nil {
 		return err
 	}
+	l.Bar = bar
+	l.ready = true
 	return nil
 }
 
 // Create ...
-func (l *Loader) Create(file string) (*Loader, error) {
-	// Open the file
-	f, fileErr := openFile(file)
-	if fileErr != nil {
-		return nil, fileErr
-	}
+func (l *Loader) Create(files []string) (*Loader, error) {
+	readers := []io.Reader{} // make([]io.Reader, len(files))
 
-	// Create the reader
-	stats, statErr := f.Stat()
-	if statErr == nil {
-		l.total = stats.Size()
-	}
 	loader := &Loader{
-		File:             file,
+		Files:            files,
 		SkipSanitization: l.SkipSanitization,
-		ready:            true,
+		ready:            false,
 		total:            l.total,
 	}
-	reader := io.TeeReader(f, loader)
-	loader.SpecificLoader = l.SpecificLoader.Create(reader, l.SkipSanitization)
+
+	for _, f := range files {
+		// Open the file
+		f, fileErr := openFile(f)
+		if fileErr != nil {
+			return nil, fileErr
+		}
+
+		// Create the reader
+		stats, statErr := f.Stat()
+		if statErr == nil {
+			l.total = stats.Size()
+		}
+
+		readers = append(readers, io.TeeReader(f, loader))
+	}
+
+	loader.total = l.total
+
+	spec, err := l.SpecificLoader.Create(readers, l.SkipSanitization)
+	if err != nil {
+		return nil, err
+	}
+	loader.SpecificLoader = spec
 	return loader, nil
 }
 

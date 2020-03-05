@@ -27,27 +27,42 @@ func main() {
 	}
 	defer mongoC.Terminate(context.Background())
 
-	csvLoader := loaders.DefaultCSVLoader()
-	csvLoader.Excel = false
+	xmlLoader := loaders.DefaultXMLLoader()
+	// csvLoader := loaders.DefaultCSVLoader()
+	// csvLoader.Excel = false
 	datasources := []*mongoimport.Datasource{
+		/*
+			{
+				Files: []string{
+					filepath.Join(dir, "examples/data/ford_escort.csv"),
+					filepath.Join(dir, "examples/data/ford_escort2.csv"),
+				},
+				Collection: "ford_escorts",
+				Loader:     loaders.Loader{SpecificLoader: csvLoader},
+				PostLoad: func(loaded map[string]interface{}) (interface{}, error) {
+					log.Debug(loaded)
+					return loaded, nil
+				},
+			},
+			{
+				Files: []string{
+					filepath.Join(dir, "examples/data/hurricanes.csv"),
+				},
+				Collection: "hurricanes",
+				Loader:     loaders.Loader{SpecificLoader: csvLoader},
+				PostLoad: func(loaded map[string]interface{}) (interface{}, error) {
+					log.Debug(loaded)
+					return loaded, nil
+				},
+			},
+		*/
 		{
 			Files: []string{
-				filepath.Join(dir, "examples/data/ford_escort.csv"),
-				filepath.Join(dir, "examples/data/ford_escort2.csv"),
+				filepath.Join(dir, "examples/data/books1.xml"),
 			},
-			Collection: "ford_escorts",
-			Loader:     loaders.Loader{SpecificLoader: csvLoader},
-			PostLoad: func(loaded map[string]interface{}) (interface{}, error) {
-				log.Debug(loaded)
-				return loaded, nil
-			},
-		},
-		{
-			Files: []string{
-				filepath.Join(dir, "examples/data/hurricanes.csv"),
-			},
-			Collection: "hurricanes",
-			Loader:     loaders.Loader{SpecificLoader: csvLoader},
+			Type:       loaders.SingleInput,
+			Collection: "books",
+			Loader:     loaders.Loader{SpecificLoader: xmlLoader},
 			PostLoad: func(loaded map[string]interface{}) (interface{}, error) {
 				log.Debug(loaded)
 				return loaded, nil
