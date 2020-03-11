@@ -21,13 +21,20 @@ func DefaultXMLLoader() *XMLLoader {
 	return &XMLLoader{}
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // Start ...
 func (xmll *XMLLoader) Start() error {
 	// entry, err := mxj.NewMapXmlReader(xmll.reader)
 	xmll.done = false
 	var wg sync.WaitGroup
-	const numParallelFiles = 5
 	numFiles := len(xmll.readers)
+	numParallelFiles := min(5, numFiles)
 	jobChan := make(chan io.Reader, numFiles)
 	xmll.resultChan = make(chan map[string]interface{}, numFiles)
 	xmll.workerChan = make(chan bool)
@@ -50,10 +57,10 @@ func (xmll *XMLLoader) Start() error {
 func worker(id int, wg *sync.WaitGroup, jobs <-chan io.Reader, results chan<- map[string]interface{}) {
 	defer wg.Done()
 	for j := range jobs {
-		fmt.Println("worker", id, "started  job", j)
+		// fmt.Println("worker", id, "started  job", j)
 		time.Sleep(time.Second)
-		fmt.Println("worker", id, "finished job", j)
-		results <- map[string]interface{}{"Hallo": "Welt"}
+		// fmt.Println("worker", id, "finished job", j)
+		results <- map[string]interface{}{"Hallo": j}
 	}
 }
 

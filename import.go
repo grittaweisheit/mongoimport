@@ -39,6 +39,7 @@ type ImportResult struct {
 // bar *uiprogress.Bar
 func (source *Datasource) importFiles(files []string, sourceWg *sync.WaitGroup, resultsChan chan ImportResult, bar *uiprogress.Bar, loader *loaders.Loader, collection *mongo.Collection, batchSize int, ignoreErrors bool) {
 	defer sourceWg.Done()
+	time.Sleep(1 * time.Second)
 
 	// Check for hooks
 	var postLoadHook PostLoadHook
@@ -160,6 +161,7 @@ func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan 
 	collection := db.Collection(source.Collection)
 
 	bar := uiprogress.AddBar(10).AppendCompleted()
+	// fmt.Println("One bar")
 	if source.Type == loaders.MultipleInput {
 		l, err := source.Loader.Create(source.Files)
 		if err != nil {
@@ -167,6 +169,7 @@ func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan 
 			return
 		}
 		bar.PrependFunc(i.progressStatus(source.Files, source.Collection, i.safePad()))
+		bar.Set(0)
 		sourceWg.Add(1)
 		go source.importFiles(source.Files, &sourceWg, resultsChan, bar, l, collection, batchSize, i.IgnoreErrors)
 	} else {

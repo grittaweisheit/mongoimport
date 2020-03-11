@@ -1,18 +1,16 @@
 package main
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 
 	"github.com/romnnn/mongoimport"
-	"github.com/romnnn/mongoimport/examples"
 	"github.com/romnnn/mongoimport/loaders"
 	log "github.com/sirupsen/logrus"
 )
 
 func main() {
-	log.SetLevel(log.DebugLevel)
+	// log.SetLevel(log.DebugLevel)
 
 	// Get the files current directory
 	dir, err := os.Getwd() // filepath.Abs(filepath.Dir(os.Args[0]))
@@ -20,60 +18,69 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Start mongodb container
+	/* Start mongodb container
 	mongoC, conn, err := examples.StartMongoContainer()
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer mongoC.Terminate(context.Background())
+	*/
 
-	xmlLoader := loaders.DefaultXMLLoader()
-	// csvLoader := loaders.DefaultCSVLoader()
-	// csvLoader.Excel = false
+	// xmlLoader := loaders.DefaultXMLLoader()
+	csvLoader := loaders.DefaultCSVLoader()
+	csvLoader.Excel = false
 	datasources := []*mongoimport.Datasource{
-		/*
-			{
-				Files: []string{
-					filepath.Join(dir, "examples/data/ford_escort.csv"),
-					filepath.Join(dir, "examples/data/ford_escort2.csv"),
-				},
-				Collection: "ford_escorts",
-				Loader:     loaders.Loader{SpecificLoader: csvLoader},
-				PostLoad: func(loaded map[string]interface{}) (interface{}, error) {
-					log.Debug(loaded)
-					return loaded, nil
-				},
-			},
-			{
-				Files: []string{
-					filepath.Join(dir, "examples/data/hurricanes.csv"),
-				},
-				Collection: "hurricanes",
-				Loader:     loaders.Loader{SpecificLoader: csvLoader},
-				PostLoad: func(loaded map[string]interface{}) (interface{}, error) {
-					log.Debug(loaded)
-					return loaded, nil
-				},
-			},
-		*/
+		// /*
 		{
 			Files: []string{
-				filepath.Join(dir, "examples/data/books1.xml"),
+				filepath.Join(dir, "examples/data/ford_escort.csv"),
+				filepath.Join(dir, "examples/data/ford_escort2.csv"),
 			},
-			Type:       loaders.SingleInput,
-			Collection: "books",
-			Loader:     loaders.Loader{SpecificLoader: xmlLoader},
+			Collection: "ford_escorts",
+			Loader:     loaders.Loader{SpecificLoader: csvLoader},
 			PostLoad: func(loaded map[string]interface{}) (interface{}, error) {
 				log.Debug(loaded)
 				return loaded, nil
 			},
 		},
+		{
+			Files: []string{
+				filepath.Join(dir, "examples/data/hurricanes.csv"),
+			},
+			Collection: "hurricanes",
+			Loader:     loaders.Loader{SpecificLoader: csvLoader},
+			PostLoad: func(loaded map[string]interface{}) (interface{}, error) {
+				log.Debug(loaded)
+				return loaded, nil
+			},
+		},
+		// */
+		/*
+			{
+				Files: []string{
+					filepath.Join(dir, "examples/data/books1.xml"),
+				},
+				Type:       loaders.SingleInput,
+				Collection: "books",
+				Loader:     loaders.Loader{SpecificLoader: xmlLoader},
+				PostLoad: func(loaded map[string]interface{}) (interface{}, error) {
+					// log.Debug(loaded)
+					return loaded, nil
+				},
+			},
+		*/
 	}
 
 	i := mongoimport.Import{
 		IgnoreErrors: true,
 		Data:         datasources,
-		Connection:   conn,
+		Connection: &mongoimport.MongoConnection{
+			DatabaseName: "test",
+			User:         "root",
+			Password:     "example",
+			Host:         "localhost",
+			Port:         27017,
+		}, // conn,
 	}
 
 	result, err := i.Start()
