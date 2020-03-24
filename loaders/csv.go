@@ -9,7 +9,7 @@ import (
 
 	csv "github.com/JensRantil/go-csv"
 	"github.com/prometheus/common/log"
-	"github.com/romnnn/mongoimport/validation"
+	"github.com/grittaweisheit/mongoimport/validation"
 )
 
 func containsDelimiter(col string) bool {

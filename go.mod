@@ -1,4 +1,4 @@
-module github.com/romnnn/mongoimport
+module github.com/grittaweisheit/mongoimport
 
 go 1.13
 

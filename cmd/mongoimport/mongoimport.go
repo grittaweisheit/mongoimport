@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"github.com/romnnn/mongoimport"
-	"github.com/romnnn/mongoimport/loaders"
+	"github.com/grittaweisheit/mongoimport"
+	"github.com/grittaweisheit/mongoimport/loaders"
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 )
