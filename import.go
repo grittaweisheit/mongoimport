@@ -219,8 +219,8 @@ func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan 
 			}(f, ldrs[li], db.Collection(source.Collection), 100)
 		}
 
-		go updateUI(updateChan, ldrs)
 		sourceWg.Wait() // wait for chunk to be completed
+		go updateUI(updateChan, ldrs)
 
 		close(updateChan)
 		// Collect results
