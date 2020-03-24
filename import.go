@@ -238,6 +238,7 @@ func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan 
 			currentEndIndex = currentEndIndex + 10 // build next chunk
 		}
 	}
+	sourceWg.Done()
 }
 
 func updateUI(updateChan chan bool, ldrs []*loaders.Loader) {
