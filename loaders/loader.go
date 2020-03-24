@@ -47,9 +47,11 @@ func (l *Loader) GetProgress() (int64, int64) {
 // UpdateProgress ...
 func (l *Loader) UpdateProgress() {
 	done, total := l.GetProgress()
-	if l.Bar != nil {
-		l.Bar.Total = int(total)
-		l.Bar.Set(int(done))
+	if l != nil {
+		if l.Bar != nil {
+			l.Bar.Total = int(total)
+			l.Bar.Set(int(done))
+		}
 	}
 
 }
