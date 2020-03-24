@@ -220,6 +220,9 @@ func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan 
 		}
 
 		sourceWg.Wait() // wait for chunk to be completed
+		go updateUI(updateChan, ldrs)
+
+		currentStartIndex = currentEndIndex + 1
 
 		if currentEndIndex == endIndex {
 			currentEndIndex = endIndex + 1 // escape for-loop
@@ -228,10 +231,7 @@ func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan 
 		} else {
 			currentEndIndex = currentEndIndex + 10 // build next chunk
 		}
-		currentStartIndex = currentStartIndex + 10
 	}
-	go updateUI(updateChan, ldrs)
-
 	close(updateChan)
 	// Collect results
 	for ri := range results {
