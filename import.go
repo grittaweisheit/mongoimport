@@ -219,9 +219,15 @@ func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan 
 			}(f, ldrs[li], db.Collection(source.Collection), 100)
 		}
 
-		sourceWg.Wait() // wait for chunk to be completed
 		go updateUI(updateChan, ldrs)
+		sourceWg.Wait() // wait for chunk to be completed
 
+		close(updateChan)
+		// Collect results
+		for ri := range results {
+			results[ri] = <-resultsChan
+		}
+		resultChan <- results
 		currentStartIndex = currentEndIndex + 1
 
 		if currentEndIndex == endIndex {
@@ -232,12 +238,6 @@ func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan 
 			currentEndIndex = currentEndIndex + 10 // build next chunk
 		}
 	}
-	close(updateChan)
-	// Collect results
-	for ri := range results {
-		results[ri] = <-resultsChan
-	}
-	resultChan <- results
 }
 
 func updateUI(updateChan chan bool, ldrs []*loaders.Loader) {
