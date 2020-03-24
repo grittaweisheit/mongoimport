@@ -102,114 +102,136 @@ func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan 
 	updateFilter = source.UpdateFilter
 	log.Debugf("Update filter is %v", updateFilter)
 
-	for li, f := range source.Files {
-		// Create a new loader for each file here
-		l, err := source.Loader.Create(f)
-		if err != nil {
-			log.Errorf("Skipping file %s because no loader could be created: %s", f, err.Error())
-			continue
-		}
-		ldrs[li] = l
-
-		sourceWg.Add(1)
-		go func(file string, loader *loaders.Loader, collection *mongo.Collection, batchSize int) {
-			defer sourceWg.Done()
-
-			start := time.Now()
-			result := ImportResult{
-				File:       file,
-				Collection: source.Collection,
-				Succeeded:  0,
-				Failed:     0,
-			}
-
-			loader.Start()
-
-			// Create progress bar
-			loader.Bar = uiprogress.AddBar(10).AppendCompleted()
-			loader.Bar.PrependFunc(i.progressStatus(file, source.Collection, i.safePad()))
-
-			batch := make([]interface{}, batchSize)
-			batched := 0
-			for {
-				exit := false
-				entry, err := loader.Load()
-				if err != nil {
-					switch err {
-					case io.EOF:
-						exit = true
-					default:
-						result.Failed++
-						result.errors = append(result.errors, err)
-						if i.IgnoreErrors {
-							log.Warnf(err.Error())
-							continue
-						} else {
-							log.Errorf(err.Error())
-							break
-						}
-					}
-				}
-
-				if exit {
-					// Insert remaining
-					insert(collection, batch[:batched])
-					break
-				}
-
-				// Apply post load hook
-				loaded, err := postLoadHook(entry)
-				if err != nil {
-					log.Error(err)
-					result.Failed++
-					continue
-				}
-
-				// Apply pre dump hook
-				dumped, err := preDumpHook(loaded)
-				if err != nil {
-					log.Error(err)
-					result.Failed++
-					continue
-				}
-
-				// Convert to BSON and add to batch
-				batch[batched] = dumped
-				batched++
-
-				// Flush batch eventually
-				if batched == batchSize {
-					/*
-						if updateFilter != nil {
-							database.Collection(collection).UpdateMany(
-								context.Background(),
-								updateFilter(dumped), update, options.Update().SetUpsert(true),
-							)
-						}
-					*/
-					// database.Collection(collection).InsertMany(context.Background(), batch)
-					// filter := bson.D{{}}
-					// update := batch // []interface{}
-					// options := options.UpdateOptions{}
-					// options.se
-					// log.Infof("insert into %s:%s", databaseName, collection)
-					err := insert(collection, batch[:batched])
-					if err != nil {
-						log.Warn(err)
-					}
-					result.Succeeded += batched
-					batched = 0
-				}
-			}
-			loader.Finish()
-			result.Elapsed = time.Since(start)
-			resultsChan <- result
-		}(f, ldrs[li], db.Collection(source.Collection), 100)
+	// take 10 files at a time
+	var endIndex int = len(source.Files) - 1
+	var currentStartIndex int = 0
+	var currentEndIndex int
+	if endIndex > 10 {
+		currentEndIndex = 10
+	} else {
+		currentEndIndex = endIndex
 	}
 
+	for currentEndIndex <= endIndex {
+
+		for li, f := range source.Files[currentStartIndex:currentEndIndex] {
+			// Create a new loader for each file here
+			l, err := source.Loader.Create(f)
+			if err != nil {
+				log.Errorf("Skipping file %s because no loader could be created: %s", f, err.Error())
+				continue
+			}
+			ldrs[li] = l
+
+			sourceWg.Add(1)
+			go func(file string, loader *loaders.Loader, collection *mongo.Collection, batchSize int) {
+				defer sourceWg.Done()
+
+				start := time.Now()
+				result := ImportResult{
+					File:       file,
+					Collection: source.Collection,
+					Succeeded:  0,
+					Failed:     0,
+				}
+
+				loader.Start()
+
+				// Create progress bar
+				loader.Bar = uiprogress.AddBar(10).AppendCompleted()
+				loader.Bar.PrependFunc(i.progressStatus(file, source.Collection, i.safePad()))
+
+				batch := make([]interface{}, batchSize)
+				batched := 0
+				for {
+					exit := false
+					entry, err := loader.Load()
+					if err != nil {
+						switch err {
+						case io.EOF:
+							exit = true
+						default:
+							result.Failed++
+							result.errors = append(result.errors, err)
+							if i.IgnoreErrors {
+								log.Warnf(err.Error())
+								continue
+							} else {
+								log.Errorf(err.Error())
+								break
+							}
+						}
+					}
+
+					if exit {
+						// Insert remaining
+						insert(collection, batch[:batched])
+						break
+					}
+
+					// Apply post load hook
+					loaded, err := postLoadHook(entry)
+					if err != nil {
+						log.Error(err)
+						result.Failed++
+						continue
+					}
+
+					// Apply pre dump hook
+					dumped, err := preDumpHook(loaded)
+					if err != nil {
+						log.Error(err)
+						result.Failed++
+						continue
+					}
+
+					// Convert to BSON and add to batch
+					batch[batched] = dumped
+					batched++
+
+					// Flush batch eventually
+					if batched == batchSize {
+						/*
+							if updateFilter != nil {
+								database.Collection(collection).UpdateMany(
+									context.Background(),
+									updateFilter(dumped), update, options.Update().SetUpsert(true),
+								)
+							}
+						*/
+						// database.Collection(collection).InsertMany(context.Background(), batch)
+						// filter := bson.D{{}}
+						// update := batch // []interface{}
+						// options := options.UpdateOptions{}
+						// options.se
+						// log.Infof("insert into %s:%s", databaseName, collection)
+						err := insert(collection, batch[:batched])
+						if err != nil {
+							log.Warn(err)
+						}
+						result.Succeeded += batched
+						batched = 0
+					}
+				}
+				loader.Finish()
+				result.Elapsed = time.Since(start)
+				resultsChan <- result
+			}(f, ldrs[li], db.Collection(source.Collection), 100)
+		}
+
+		sourceWg.Wait() // wait for chunk to be completed
+
+		if currentEndIndex == endIndex {
+			currentEndIndex = endIndex + 1 // escape for-loop
+		} else if currentEndIndex+10 > endIndex {
+			currentEndIndex = endIndex // build last chunk
+		} else {
+			currentEndIndex = currentEndIndex + 10 // build next chunk
+		}
+		currentStartIndex = currentStartIndex + 10
+	}
 	go updateUI(updateChan, ldrs)
 
-	sourceWg.Wait()
 	close(updateChan)
 	// Collect results
 	for ri := range results {
