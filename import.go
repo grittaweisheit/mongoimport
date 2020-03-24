@@ -12,7 +12,7 @@ import (
 
 	"github.com/gosuri/uiprogress"
 	"github.com/gosuri/uiprogress/util/strutil"
-	"github.com/grittaweisheit/mongoimport/loaders"
+	"github.com/romnnn/mongoimport/loaders"
 	"go.mongodb.org/mongo-driver/mongo"
 
 	// "go.mongodb.org/mongo-driver/mongo/options"

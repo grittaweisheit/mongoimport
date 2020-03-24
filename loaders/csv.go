@@ -8,8 +8,8 @@ import (
 	"unicode/utf8"
 
 	csv "github.com/JensRantil/go-csv"
-	"github.com/grittaweisheit/mongoimport/validation"
 	"github.com/prometheus/common/log"
+	"github.com/romnnn/mongoimport/validation"
 )
 
 func containsDelimiter(col string) bool {
