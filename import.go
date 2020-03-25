@@ -91,9 +91,9 @@ func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan 
 	var sourceWg sync.WaitGroup
 
 	ldrs := make([]*loaders.Loader, len(source.Files))
-	results := make([]ImportResult, len(source.Files))
-	resultsChan := make(chan ImportResult, len(source.Files))
-	updateChan := make(chan bool)
+	// results := make([]ImportResult, len(source.Files))
+	// resultsChan := make(chan ImportResult, len(source.Files))
+	// updateChan := make(chan bool)
 
 	// Check for hooks
 	var updateFilter UpdateFilterHook
@@ -215,19 +215,19 @@ func (i Import) importSource(source *Datasource, wg *sync.WaitGroup, resultChan 
 				}
 				loader.Finish()
 				result.Elapsed = time.Since(start)
-				resultsChan <- result
+				// resultsChan <- result
 			}(f, ldrs[li], db.Collection(source.Collection), 100)
 		}
 
 		sourceWg.Wait() // wait for chunk to be completed
-		go updateUI(updateChan, ldrs)
+		/* 		go updateUI(updateChan, ldrs)
 
-		close(updateChan)
+		   		close(updateChan) */
 		// Collect results
-		for ri := range results {
+		/* for ri := range results {
 			results[ri] = <-resultsChan
 		}
-		resultChan <- results
+		resultChan <- results */
 		currentStartIndex = currentEndIndex + 1
 
 		if currentEndIndex == endIndex {
